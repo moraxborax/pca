@@ -32,6 +32,15 @@ def class_counts() -> dict[str, int]:
     }
 
 
+def clear_dataset() -> dict[str, int]:
+    """Delete all PNG samples. Returns counts after clearing (all zeros)."""
+    ensure_class_dirs()
+    for class_name in CLASSES:
+        for image_path in (DATA_DIR / class_name).glob("*.png"):
+            image_path.unlink(missing_ok=True)
+    return class_counts()
+
+
 def load_dataset() -> tuple[NDArray[np.float32], NDArray[np.int64]]:
     ensure_class_dirs()
     features: list[NDArray[np.float32]] = []

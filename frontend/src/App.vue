@@ -75,6 +75,32 @@ async function toggleCapture() {
     error.value = 'Backend not reachable'
   }
 }
+
+async function clearDataset() {
+  if (!window.confirm('Delete all captured samples? This cannot be undone.')) {
+    return
+  }
+  error.value = ''
+  try {
+    if (capturing.value) {
+      await fetch('/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capturing: false }),
+      })
+      capturing.value = false
+    }
+    const response = await fetch('/dataset', { method: 'DELETE' })
+    if (!response.ok) {
+      const data = await response.json()
+      error.value = data.detail ?? 'Failed to clear dataset'
+      return
+    }
+    statsRef.value?.fetchStats()
+  } catch {
+    error.value = 'Backend not reachable'
+  }
+}
 </script>
 
 <template>
@@ -103,6 +129,7 @@ async function toggleCapture() {
             {{ capturing ? 'Stop capturing' : 'Start capturing' }}
           </button>
           <DatasetStats ref="statsRef" :capturing="capturing" />
+          <button class="clear-btn" @click="clearDataset">Clear dataset</button>
         </template>
         <TrainPanel v-else-if="mode === 'train'" />
         <PredictionPanel v-else />
@@ -169,6 +196,21 @@ h1 {
 .capture-btn.recording {
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.clear-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.clear-btn:hover {
+  border-color: #ef4444;
   color: #ef4444;
 }
 

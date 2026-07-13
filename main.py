@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from artifacts import artifacts_exist, load_artifacts
 from config import CLASSES, SAMPLE_RATE_HZ
 from control import apply_action, init_board, stop as motor_stop
-from dataset import class_counts, save_sample
+from dataset import class_counts, clear_dataset, save_sample
 from inference import predict
 from preprocess import frame_to_sample
 from stream import Camera, CameraStreamTrack
@@ -178,6 +178,13 @@ app.add_middleware(
 @app.get("/dataset/stats")
 def get_dataset_stats() -> dict:
     return {"counts": class_counts()}
+
+
+@app.delete("/dataset")
+def delete_dataset() -> dict:
+    state.capturing = False
+    counts = clear_dataset()
+    return {"ok": True, "counts": counts}
 
 
 @app.post("/state")
