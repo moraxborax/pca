@@ -25,7 +25,7 @@ import time
 from DFRobot_RaspberryPi_DC_Motor import THIS_BOARD_TYPE, DFRobot_DC_Motor_IIC as Board
 
 if THIS_BOARD_TYPE:
-  board = Board(1, 0x10)    # RaspberryPi select bus 1, set address to 0x10
+  board = Board(3, 0x10)    # RaspberryPi select bus 1, set address to 0x10
 else:
   board = Board(7, 0x10)    # RockPi select bus 7, set address to 0x10
 

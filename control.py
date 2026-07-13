@@ -35,11 +35,11 @@ def print_board_status(board: Board):
 
 
 def init_board(
-    board_address: int = 0x10, reduction_ratio: int = 43, pcm_freq: int = 1000
+        bus: int=3, board_address: int = 0x10, reduction_ratio: int = 43, pcm_freq: int = 1000
 ):
 
     # We will ONLY use raspi
-    board = Board(1, board_address)  # RaspberryPi select bus 1, set address to 0x10
+    board = Board(bus, board_address)  # RaspberryPi select bus 1, set address to 0x10
     board.set_encoder_enable(board.ALL)  # Set selected DC motor encoder enable
     # board.set_encoder_disable(board.ALL)              # Set selected DC motor encoder disable
     board.set_encoder_reduction_ratio(
