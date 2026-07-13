@@ -1,5 +1,5 @@
 export type CartState = 'forward' | 'stop' | 'left' | 'right' | 'search'
-export type AppMode = 'label' | 'infer'
+export type AppMode = 'label' | 'train' | 'infer'
 
 export interface PredictionMessage {
   class_name: CartState

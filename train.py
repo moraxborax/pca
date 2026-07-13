@@ -63,7 +63,7 @@ def main() -> None:
     device = torch.device("cpu")
     X, y = load_dataset()
     if len(X) == 0:
-        raise SystemExit("No training data found. Collect samples in label mode first.")
+        raise ValueError("No training data found. Collect samples in Capture mode first.")
 
     print(f"Loaded {len(X)} samples with {X.shape[1]} features")
 

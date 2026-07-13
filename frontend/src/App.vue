@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import DatasetStats from './components/DatasetStats.vue'
 import PredictionPanel from './components/PredictionPanel.vue'
 import StateDisplay from './components/StateDisplay.vue'
+import TrainPanel from './components/TrainPanel.vue'
 import VideoStream from './components/VideoStream.vue'
 import { useKeyboard } from './composables/useKeyboard'
 import type { AppMode, CartState } from './types'
@@ -13,6 +14,7 @@ const statsRef = ref<InstanceType<typeof DatasetStats> | null>(null)
 const error = ref('')
 
 async function postState(state: CartState) {
+  if (mode.value !== 'label' && mode.value !== 'infer') return
   error.value = ''
   try {
     const response = await fetch('/state', {
@@ -46,7 +48,7 @@ async function setMode(newMode: AppMode) {
       return
     }
     mode.value = newMode
-    if (newMode === 'infer') {
+    if (newMode !== 'label') {
       capturing.value = false
     }
   } catch {
@@ -80,7 +82,8 @@ async function toggleCapture() {
     <header>
       <h1>Robot Cart</h1>
       <div class="mode-toggle">
-        <button :class="{ active: mode === 'label' }" @click="setMode('label')">Label</button>
+        <button :class="{ active: mode === 'label' }" @click="setMode('label')">Capture</button>
+        <button :class="{ active: mode === 'train' }" @click="setMode('train')">Train</button>
         <button :class="{ active: mode === 'infer' }" @click="setMode('infer')">Infer</button>
       </div>
     </header>
@@ -90,7 +93,7 @@ async function toggleCapture() {
     <main>
       <VideoStream />
       <aside>
-        <StateDisplay :current-state="currentState" />
+        <StateDisplay v-if="mode !== 'train'" :current-state="currentState" />
         <template v-if="mode === 'label'">
           <button
             class="capture-btn"
@@ -101,6 +104,7 @@ async function toggleCapture() {
           </button>
           <DatasetStats ref="statsRef" :capturing="capturing" />
         </template>
+        <TrainPanel v-else-if="mode === 'train'" />
         <PredictionPanel v-else />
       </aside>
     </main>

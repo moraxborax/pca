@@ -173,16 +173,17 @@ def set_state(body: StateRequest) -> dict:
 
 @app.post("/mode")
 def set_mode(body: ModeRequest) -> dict:
-    if body.mode not in ("label", "infer"):
+    if body.mode not in ("label", "train", "infer"):
         raise HTTPException(status_code=400, detail=f"Invalid mode: {body.mode}")
     if body.mode == "infer" and not artifacts_exist():
         raise HTTPException(
             status_code=400,
-            detail="No trained model found. Run `uv run python train.py` first.",
+            detail="No trained model found. Use the Train tab first.",
         )
     state.mode = body.mode
-    if body.mode == "infer":
+    if body.mode != "label":
         state.capturing = False
+    if body.mode == "infer":
         loaded = load_artifacts(state.device)
         if loaded is not None:
             state.model, state.mean, state.components, _ = loaded
@@ -199,11 +200,16 @@ def set_capture(body: CaptureRequest) -> dict:
 
 @app.post("/train")
 def trigger_train() -> dict:
-    train_main()
+    try:
+        train_main()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     loaded = load_artifacts(state.device)
     if loaded is not None:
         state.model, state.mean, state.components, _ = loaded
-    return {"ok": True, "message": "Training complete"}
+    return {"ok": True, "message": "Training complete — switch to Infer to try it"}
 
 
 @app.post("/offer")
