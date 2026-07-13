@@ -1,118 +1,111 @@
-from DFRobot_RaspberryPi_Motor.DFRobot_RaspberryPi_DC_Motor import (
-    DFRobot_DC_Motor_IIC as Board,
-)
+from __future__ import annotations
+
+import logging
 import time
-# import gpiozero
+from typing import Any
 
-MotorBoard = Board
+logger = logging.getLogger(__name__)
 
-def board_detect(board: Board):
-    l = board.detecte()
-    print("Board list conform:")
-    print(l)
-
-
-""" print last operate status, users can use this variable to determine the result of a function call. """
+# Duty cycles 0–100 for keyboard / commanded states
+DRIVE_DUTY = 40
+TURN_DUTY = 30
+SEARCH_DUTY = 15
 
 
-def print_board_status(board: Board):
-    if board.last_operate_status == board.STA_OK:
-        print("board status: everything ok")
-    elif board.last_operate_status == board.STA_ERR:
-        print("board status: unexpected error")
-    elif board.last_operate_status == board.STA_ERR_DEVICE_NOT_DETECTED:
-        print("board status: device not detected")
-    elif board.last_operate_status == board.STA_ERR_PARAMETER:
-        print("board status: parameter error, last operate no effective")
-    elif board.last_operate_status == board.STA_ERR_SOFT_VERSION:
-        print("board status: unsupport board framware version")
+def _load_board_class() -> type:
+    from DFRobot_RaspberryPi_Motor.DFRobot_RaspberryPi_DC_Motor import (
+        DFRobot_DC_Motor_IIC as Board,
+    )
 
-        while board.begin() != board.STA_OK:  # Board begin and check board status
-            print_board_status()
-            print("board begin faild")
-            time.sleep(2)
-        print("board begin success")
+    return Board
+
+
+def print_board_status(board: Any) -> None:
+    status = board.last_operate_status
+    messages = {
+        board.STA_OK: "everything ok",
+        board.STA_ERR: "unexpected error",
+        board.STA_ERR_DEVICE_NOT_DETECTED: "device not detected",
+        board.STA_ERR_PARAMETER: "parameter error, last operate no effective",
+        board.STA_ERR_SOFT_VERSION: "unsupported board firmware version",
+    }
+    logger.info("board status: %s", messages.get(status, f"unknown ({status})"))
 
 
 def init_board(
-        bus: int=3, board_address: int = 0x10, reduction_ratio: int = 43, pcm_freq: int = 1000
-):
+    bus: int = 3,
+    board_address: int = 0x10,
+    reduction_ratio: int = 43,
+    pwm_freq: int = 1000,
+    retries: int = 3,
+) -> Any:
+    """Initialize motor board. Raises if board cannot be opened."""
+    Board = _load_board_class()
+    # Bus 3: Pi I2C remapped for DLP2000EVM projector hardware
+    board = Board(bus, board_address)
 
-    # We will ONLY use raspi
-    board = Board(bus, board_address)  # RaspberryPi select bus 1, set address to 0x10
-    board.set_encoder_enable(board.ALL)  # Set selected DC motor encoder enable
-    # board.set_encoder_disable(board.ALL)              # Set selected DC motor encoder disable
-    board.set_encoder_reduction_ratio(
-        board.ALL, reduction_ratio
-    )  # Set selected DC motor encoder reduction ratio, test motor reduction ratio is 43.8
+    for attempt in range(1, retries + 1):
+        if board.begin() == board.STA_OK:
+            break
+        print_board_status(board)
+        if attempt == retries:
+            raise RuntimeError("Motor board begin failed")
+        logger.warning("board begin failed (%d/%d) — retrying", attempt, retries)
+        time.sleep(1)
+    logger.info("board begin success")
 
-    board.set_moter_pwm_frequency(pcm_freq)
+    board.set_encoder_enable(board.ALL)
+    board.set_encoder_reduction_ratio(board.ALL, reduction_ratio)
+    board.set_moter_pwm_frequency(pwm_freq)
+    board.motor_stop(board.ALL)
     return board
 
 
-def forward(board: Board, duty: int):
+def forward(board: Any, duty: int) -> None:
     board.motor_movement([board.M1], board.CW, duty)
     board.motor_movement([board.M2], board.CCW, duty)
 
 
-def stop(board: Board):
-    forward(board, 0)
+def stop(board: Any) -> None:
+    board.motor_stop(board.ALL)
 
 
-def left_inplace(board: Board, duty: int):
+def left_inplace(board: Any, duty: int) -> None:
     board.motor_movement([board.M1], board.CCW, duty)
     board.motor_movement([board.M2], board.CCW, duty)
 
 
-def right_inplace(board: Board, duty: int):
+def right_inplace(board: Any, duty: int) -> None:
     board.motor_movement([board.M1], board.CW, duty)
     board.motor_movement([board.M2], board.CW, duty)
 
-def forward_for(board: Board, duty: int, duration: float, dt: float=0.1):
-    for _ in range(int(duration / dt)):
-        forward(board, duty)
-        time.sleep(dt)
-    stop(board)
 
-def left_for(board: Board, duty: int, duration: float, dt: float=0.1):
-    for _ in range(int(duration / dt)):
-        left_inplace(board, duty)
-        time.sleep(dt)
-    stop(board)
-
-def right_for(board: Board, duty: int, duration: float, dt: float=0.1):
-    for _ in range(int(duration / dt)):
-        right_inplace(board, duty)
-        time.sleep(dt)
-    stop(board)
-
-    # start_time = time.time()
-    # while time.time() - start_time < duration:
-    #     forward(board, duty)
-    # stop(board)
+def search(board: Any, duty: int = SEARCH_DUTY) -> None:
+    # Slow CCW spin (in-place left)
+    left_inplace(board, duty)
 
 
-# def search(board: Board, sonar: gpiozero.DistanceSensor):
-def search(board: Board):
-    # a simple search
-    # just turn left slowly until you found something
-    left_inplace(board, 10)
+def apply_action(
+    board: Any | None,
+    action: str,
+    *,
+    drive_duty: int = DRIVE_DUTY,
+    turn_duty: int = TURN_DUTY,
+    search_duty: int = SEARCH_DUTY,
+) -> None:
+    """Map cart class name to motor commands. No-op if board is unavailable."""
+    if board is None:
+        return
 
-def left(board: Board, duty: int, width: float, radius: float):
-    if radius < width / 2:
-        raise ValueError("Radius must be greater than width / 2")
-    right_duty = duty
-    left_duty = duty * (radius - width / 2) / (radius + width / 2)
-    board.motor_movement([board.M1], board.CW, left_duty)
-    board.motor_movement([board.M2], board.CCW, right_duty)
-
-def right(board: Board, duty: int, width: float, radius: float):
-    if radius < width / 2:
-        raise ValueError("Radius must be greater than width / 2")
-    left_duty = duty
-    right_duty = duty * (radius - width / 2) / (radius + width / 2)
-    board.motor_movement([board.M1], board.CW, left_duty)
-    board.motor_movement([board.M2], board.CCW, right_duty)
-    
-
-
+    if action == "forward":
+        forward(board, drive_duty)
+    elif action == "stop":
+        stop(board)
+    elif action == "left":
+        left_inplace(board, turn_duty)
+    elif action == "right":
+        right_inplace(board, turn_duty)
+    elif action == "search":
+        search(board, search_duty)
+    else:
+        raise ValueError(f"Unknown action: {action}")

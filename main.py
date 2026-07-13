@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from artifacts import artifacts_exist, load_artifacts
 from config import CLASSES, SAMPLE_RATE_HZ
+from control import apply_action, init_board, stop as motor_stop
 from dataset import class_counts, save_sample
 from inference import predict
 from preprocess import frame_to_sample
@@ -19,8 +20,6 @@ from train import main as train_main
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-SEARCH_SPIN_DUTY = 0.3
 
 
 @dataclass
@@ -36,6 +35,7 @@ class AppState:
     latest_prediction: dict | None = None
     ws_clients: set[WebSocket] = field(default_factory=set)
     peer_connections: set[RTCPeerConnection] = field(default_factory=set)
+    board: object | None = None
 
 
 state = AppState()
@@ -68,9 +68,20 @@ def overlay_text() -> str:
     return " | ".join(parts)
 
 
-def apply_search_stub() -> None:
-    if state.state == "search":
-        logger.info("Search mode active (CCW spin stub, duty=%.1f)", SEARCH_SPIN_DUTY)
+def drive_motors(action: str) -> None:
+    try:
+        apply_action(state.board, action)
+    except Exception:
+        logger.exception("Motor command failed for action=%s", action)
+
+
+def try_init_motors() -> None:
+    try:
+        state.board = init_board()
+        logger.info("Motor board ready")
+    except Exception:
+        state.board = None
+        logger.warning("Motor board unavailable — running without motors", exc_info=True)
 
 
 async def sample_loop() -> None:
@@ -137,11 +148,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("No model artifacts found — train after collecting data")
 
+    await asyncio.to_thread(try_init_motors)
+
     sample_task = asyncio.create_task(sample_loop())
     predict_task = asyncio.create_task(predict_loop())
     yield
     sample_task.cancel()
     predict_task.cancel()
+    if state.board is not None:
+        try:
+            await asyncio.to_thread(motor_stop, state.board)
+        except Exception:
+            logger.exception("Failed to stop motors on shutdown")
     for pc in list(state.peer_connections):
         await pc.close()
     state.camera.release()
@@ -167,8 +185,8 @@ def set_state(body: StateRequest) -> dict:
     if body.state not in CLASSES:
         raise HTTPException(status_code=400, detail=f"Invalid state: {body.state}")
     state.state = body.state
-    apply_search_stub()
-    return {"ok": True, "state": state.state}
+    drive_motors(body.state)
+    return {"ok": True, "state": state.state, "motors": state.board is not None}
 
 
 @app.post("/mode")
@@ -183,6 +201,9 @@ def set_mode(body: ModeRequest) -> dict:
     state.mode = body.mode
     if body.mode != "label":
         state.capturing = False
+    if body.mode == "train":
+        state.state = "stop"
+        drive_motors("stop")
     if body.mode == "infer":
         loaded = load_artifacts(state.device)
         if loaded is not None:
