@@ -62,7 +62,7 @@ def init_board(
 
 
 def forward(board: Any, duty: int) -> None:
-    board.motor_movement([board.M1], board.CCW, duty)
+    board.motor_movement([board.M1], board.CW, duty)
     board.motor_movement([board.M2], board.CCW, duty)
 
 
@@ -76,12 +76,12 @@ def stop(board: Any) -> None:
 
 
 def left_inplace(board: Any, duty: int) -> None:
-    board.motor_movement([board.M1], board.CW, duty)
+    board.motor_movement([board.M1], board.CCW, duty)
     board.motor_movement([board.M2], board.CCW, duty)
 
 
 def right_inplace(board: Any, duty: int) -> None:
-    board.motor_movement([board.M1], board.CCW, duty)
+    board.motor_movement([board.M1], board.CW, duty)
     board.motor_movement([board.M2], board.CW, duty)
 
 
