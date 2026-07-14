@@ -27,6 +27,8 @@ class AppState:
     mode: str = "label"
     state: str = "stop"
     capturing: bool = False
+    infer_paused: bool = False
+    last_driven_action: str | None = None
     camera: Camera = field(default_factory=Camera)
     device: torch.device = field(default_factory=lambda: torch.device("cpu"))
     model: object | None = None
@@ -62,15 +64,20 @@ def overlay_text() -> str:
     parts = [f"mode={state.mode}", f"state={state.state}"]
     if state.capturing:
         parts.append("REC")
+    if state.mode == "infer" and state.infer_paused:
+        parts.append("PAUSED")
     if state.latest_prediction is not None:
         pred = state.latest_prediction
         parts.append(f"pred={pred['class_name']} ({pred['confidence']:.0%})")
     return " | ".join(parts)
 
 
-def drive_motors(action: str) -> None:
+def drive_motors(action: str, *, force: bool = False) -> None:
+    if not force and action == state.last_driven_action:
+        return
     try:
         apply_action(state.board, action)
+        state.last_driven_action = action
     except Exception:
         logger.exception("Motor command failed for action=%s", action)
 
@@ -122,8 +129,15 @@ async def predict_loop() -> None:
                 "class_index": prediction.class_index,
                 "confidence": prediction.confidence,
                 "commanded_state": state.state,
+                "driving": not state.infer_paused,
+                "paused": state.infer_paused,
             }
             state.latest_prediction = message
+
+            if state.infer_paused:
+                await asyncio.to_thread(drive_motors, "stop")
+            else:
+                await asyncio.to_thread(drive_motors, prediction.class_name)
 
             dead_clients: list[WebSocket] = []
             for ws in state.ws_clients:
@@ -192,6 +206,23 @@ def set_state(body: StateRequest) -> dict:
     if body.state not in CLASSES:
         raise HTTPException(status_code=400, detail=f"Invalid state: {body.state}")
     state.state = body.state
+
+    if state.mode == "infer":
+        # Q/stop = emergency stop; any other key resumes ML driving
+        if body.state == "stop":
+            state.infer_paused = True
+            drive_motors("stop", force=True)
+        else:
+            state.infer_paused = False
+        return {
+            "ok": True,
+            "state": state.state,
+            "motors": state.board is not None,
+            "infer_paused": state.infer_paused,
+            "driving": "ml" if not state.infer_paused else "paused",
+        }
+
+    # Capture / train: keyboard drives motors directly
     drive_motors(body.state)
     return {"ok": True, "state": state.state, "motors": state.board is not None}
 
@@ -205,16 +236,23 @@ def set_mode(body: ModeRequest) -> dict:
             status_code=400,
             detail="No trained model found. Use the Train tab first.",
         )
+    prev = state.mode
     state.mode = body.mode
     if body.mode != "label":
         state.capturing = False
     if body.mode == "train":
         state.state = "stop"
-        drive_motors("stop")
+        state.infer_paused = True
+        drive_motors("stop", force=True)
     if body.mode == "infer":
         loaded = load_artifacts(state.device)
         if loaded is not None:
             state.model, state.mean, state.components, _ = loaded
+        state.infer_paused = False
+        state.state = "stop"
+        drive_motors("stop", force=True)
+    if prev == "infer" and body.mode != "infer":
+        drive_motors("stop", force=True)
     return {"ok": True, "mode": state.mode}
 
 

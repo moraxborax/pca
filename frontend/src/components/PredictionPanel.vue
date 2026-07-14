@@ -49,7 +49,10 @@ onUnmounted(() => {
         <div class="fill" :style="{ width: `${prediction.confidence * 100}%` }" />
       </div>
       <p class="confidence-text">{{ (prediction.confidence * 100).toFixed(1) }}% confidence</p>
-      <p class="commanded">Commanded: {{ STATE_LABELS[prediction.commanded_state] }}</p>
+      <p class="drive-status" :class="{ paused: prediction.paused }">
+        {{ prediction.paused ? 'Paused — press any key except Q to resume' : 'Driving from ML' }}
+      </p>
+      <p class="hint">Q = emergency stop</p>
     </template>
     <p v-else class="waiting">Waiting for predictions…</p>
   </div>
@@ -104,14 +107,25 @@ onUnmounted(() => {
 }
 
 .confidence-text,
-.commanded,
+.drive-status,
+.hint,
 .waiting {
   margin: 0;
   font-size: 13px;
   color: var(--muted);
 }
 
-.commanded {
+.drive-status {
   margin-top: 8px;
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.drive-status.paused {
+  color: #ef4444;
+}
+
+.hint {
+  margin-top: 6px;
 }
 </style>

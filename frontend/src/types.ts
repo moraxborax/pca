@@ -6,6 +6,8 @@ export interface PredictionMessage {
   class_index: number
   confidence: number
   commanded_state: CartState
+  driving?: boolean
+  paused?: boolean
 }
 
 export const KEY_TO_STATE: Record<string, CartState> = {
