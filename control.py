@@ -66,6 +66,11 @@ def forward(board: Any, duty: int) -> None:
     board.motor_movement([board.M2], board.CCW, duty)
 
 
+def backward(board: Any, duty: int) -> None:
+    board.motor_movement([board.M1], board.CCW, duty)
+    board.motor_movement([board.M2], board.CW, duty)
+
+
 def stop(board: Any) -> None:
     board.motor_stop(board.ALL)
 
@@ -99,6 +104,8 @@ def apply_action(
 
     if action == "forward":
         forward(board, drive_duty)
+    elif action == "backward":
+        backward(board, drive_duty)
     elif action == "stop":
         stop(board)
     elif action == "left":

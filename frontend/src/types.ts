@@ -1,4 +1,4 @@
-export type CartState = 'forward' | 'stop' | 'left' | 'right' | 'search'
+export type CartState = 'forward' | 'backward' | 'stop' | 'left' | 'right' | 'search'
 export type AppMode = 'label' | 'train' | 'infer'
 
 export interface PredictionMessage {
@@ -10,14 +10,16 @@ export interface PredictionMessage {
 
 export const KEY_TO_STATE: Record<string, CartState> = {
   w: 'forward',
-  s: 'stop',
+  s: 'backward',
+  q: 'stop',
   a: 'left',
   d: 'right',
-  q: 'search',
+  e: 'search',
 }
 
 export const STATE_LABELS: Record<CartState, string> = {
   forward: 'FORWARD',
+  backward: 'BACKWARD',
   stop: 'STOP',
   left: 'LEFT',
   right: 'RIGHT',
