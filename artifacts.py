@@ -39,11 +39,15 @@ def load_artifacts(
         return None
 
     config = json.loads((ARTIFACTS_DIR / "config.json").read_text())
+    if config.get("classes") != CLASSES:
+        # Old checkpoints (e.g. 5-class) are incompatible with the current label set.
+        return None
+
     n_components = int(config["n_components"])
     mean = np.load(ARTIFACTS_DIR / "pca_mean.npy")
     components = np.load(ARTIFACTS_DIR / "pca_components.npy")
 
-    model = Net(n_components)
+    model = Net(n_components, num_classes=len(CLASSES))
     model.load_state_dict(
         torch.load(ARTIFACTS_DIR / "model.pth", map_location=device, weights_only=True)
     )

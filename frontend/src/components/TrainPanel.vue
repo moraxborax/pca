@@ -9,6 +9,7 @@ const emit = defineEmits<{
 
 const counts = ref<Record<CartState, number>>({
   forward: 0,
+  backward: 0,
   stop: 0,
   left: 0,
   right: 0,

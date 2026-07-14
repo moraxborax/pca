@@ -8,10 +8,11 @@ defineProps<{
 
 const legend = [
   { key: 'W', state: 'forward' as CartState },
-  { key: 'S', state: 'stop' as CartState },
+  { key: 'S', state: 'backward' as CartState },
+  { key: 'Q', state: 'stop' as CartState },
   { key: 'A', state: 'left' as CartState },
   { key: 'D', state: 'right' as CartState },
-  { key: 'Q', state: 'search' as CartState },
+  { key: 'E', state: 'search' as CartState },
 ]
 </script>
 
@@ -48,6 +49,7 @@ const legend = [
 }
 
 .state.forward { color: #22c55e; }
+.state.backward { color: #14b8a6; }
 .state.stop { color: #ef4444; }
 .state.left { color: #3b82f6; }
 .state.right { color: #f59e0b; }

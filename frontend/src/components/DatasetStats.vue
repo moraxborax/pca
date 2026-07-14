@@ -9,6 +9,7 @@ defineProps<{
 
 const counts = ref<Record<CartState, number>>({
   forward: 0,
+  backward: 0,
   stop: 0,
   left: 0,
   right: 0,
@@ -58,7 +59,7 @@ defineExpose({ fetchStats })
     <p class="hint">
       {{ capturing
         ? 'Sampling at 10 Hz for the latched state.'
-        : 'Press Start capturing, then use W/A/S/D/Q to label.' }}
+        : 'Press Start capturing, then use W/S/Q/A/D/E to label.' }}
     </p>
   </div>
 </template>

@@ -83,6 +83,7 @@ onUnmounted(() => {
 }
 
 .pred-class.forward { color: #22c55e; }
+.pred-class.backward { color: #14b8a6; }
 .pred-class.stop { color: #ef4444; }
 .pred-class.left { color: #3b82f6; }
 .pred-class.right { color: #f59e0b; }
