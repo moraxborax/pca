@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from config import CLASSES
-from pca.pca import pca_transform
+from config import CLASS_TO_INDEX, CLASSES
+from pca.pca import pca_residual, pca_transform
 from preprocess import frame_to_sample, sample_to_features
 from model import Net
 
@@ -15,6 +15,8 @@ class Prediction:
     class_index: int
     class_name: str
     confidence: float
+    residual: float = 0.0
+    forced_search: bool = False
 
 
 def predict(
@@ -23,10 +25,23 @@ def predict(
     components: NDArray[np.float32],
     frame: NDArray[np.uint8],
     device: torch.device = torch.device("cpu"),
+    residual_threshold: float | None = None,
 ) -> Prediction:
     sample = frame_to_sample(frame)
     features = sample_to_features(sample)
-    transformed = pca_transform(features.reshape(1, -1), mean, components)
+    features_2d = features.reshape(1, -1)
+    residual = float(pca_residual(features_2d, mean, components)[0])
+
+    if residual_threshold is not None and residual > residual_threshold:
+        return Prediction(
+            class_index=CLASS_TO_INDEX["search"],
+            class_name="search",
+            confidence=1.0,
+            residual=residual,
+            forced_search=True,
+        )
+
+    transformed = pca_transform(features_2d, mean, components)
     x = torch.from_numpy(transformed).to(device)
 
     model.eval()
@@ -40,4 +55,6 @@ def predict(
         class_index=idx,
         class_name=CLASSES[idx],
         confidence=float(confidence.item()),
+        residual=residual,
+        forced_search=False,
     )

@@ -18,6 +18,7 @@ def save_artifacts(
     components: NDArray[np.float32],
     singular_values: NDArray[np.float32],
     n_components: int,
+    residual_threshold: float,
 ) -> None:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     np.save(ARTIFACTS_DIR / "pca_mean.npy", mean)
@@ -28,6 +29,7 @@ def save_artifacts(
         "image_size": IMAGE_SIZE,
         "n_components": n_components,
         "classes": CLASSES,
+        "residual_threshold": residual_threshold,
     }
     (ARTIFACTS_DIR / "config.json").write_text(json.dumps(config, indent=2))
 

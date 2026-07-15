@@ -10,6 +10,7 @@ export default defineConfig({
       '/mode': 'http://localhost:8000',
       '/capture': 'http://localhost:8000',
       '/train': 'http://localhost:8000',
+      '/pca': 'http://localhost:8000',
       '/dataset': 'http://localhost:8000',
       '/ws': {
         target: 'ws://localhost:8000',

@@ -12,6 +12,8 @@ NUM_CLASSES = len(CLASSES)
 DATA_DIR = Path("data")
 ARTIFACTS_DIR = Path("artifacts")
 
+RESIDUAL_THRESHOLD_MULTIPLIER = 2.0  # force search if residual > multiplier * train p95
+
 KEY_TO_STATE = {
     "w": "forward",
     "s": "backward",
@@ -20,3 +22,4 @@ KEY_TO_STATE = {
     "d": "right",
     "e": "search",
 }
+

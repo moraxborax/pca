@@ -49,6 +49,12 @@ onUnmounted(() => {
         <div class="fill" :style="{ width: `${prediction.confidence * 100}%` }" />
       </div>
       <p class="confidence-text">{{ (prediction.confidence * 100).toFixed(1) }}% confidence</p>
+      <p v-if="prediction.forced_search" class="forced">
+        PCA residual high ({{ prediction.residual?.toFixed(2) }}) → forced SEARCH
+      </p>
+      <p v-else-if="prediction.residual != null" class="residual">
+        residual {{ prediction.residual.toFixed(2) }}
+      </p>
       <p class="drive-status" :class="{ paused: prediction.paused }">
         {{ prediction.paused ? 'Paused — press any key except Q to resume' : 'Driving from ML' }}
       </p>
@@ -109,10 +115,22 @@ onUnmounted(() => {
 .confidence-text,
 .drive-status,
 .hint,
+.residual,
+.forced,
 .waiting {
   margin: 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+.forced {
+  margin-top: 8px;
+  font-weight: 600;
+  color: #a855f7;
+}
+
+.residual {
+  margin-top: 6px;
 }
 
 .drive-status {

@@ -236,6 +236,8 @@ aside {
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  max-height: calc(100svh - 120px);
+  overflow: auto;
 }
 
 @media (max-width: 800px) {

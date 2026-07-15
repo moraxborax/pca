@@ -34,6 +34,7 @@ class AppState:
     model: object | None = None
     mean: object | None = None
     components: object | None = None
+    artifact_config: dict | None = None
     latest_prediction: dict | None = None
     ws_clients: set[WebSocket] = field(default_factory=set)
     peer_connections: set[RTCPeerConnection] = field(default_factory=set)
@@ -68,7 +69,12 @@ def overlay_text() -> str:
         parts.append("PAUSED")
     if state.latest_prediction is not None:
         pred = state.latest_prediction
-        parts.append(f"pred={pred['class_name']} ({pred['confidence']:.0%})")
+        label = pred["class_name"]
+        if pred.get("forced_search"):
+            label = f"{label}*"
+        parts.append(f"pred={label} ({pred['confidence']:.0%})")
+        if "residual" in pred:
+            parts.append(f"r={pred['residual']:.2f}")
     return " | ".join(parts)
 
 
@@ -89,6 +95,16 @@ def try_init_motors() -> None:
     except Exception:
         state.board = None
         logger.warning("Motor board unavailable — running without motors", exc_info=True)
+
+
+def apply_loaded_artifacts(loaded: tuple) -> None:
+    state.model, state.mean, state.components, state.artifact_config = loaded
+    threshold = state.artifact_config.get("residual_threshold")
+    logger.info(
+        "Loaded model artifacts (%s components, residual_threshold=%s)",
+        state.artifact_config.get("n_components"),
+        threshold,
+    )
 
 
 async def sample_loop() -> None:
@@ -121,8 +137,18 @@ async def predict_loop() -> None:
             if frame is None:
                 continue
 
+            residual_threshold = None
+            if isinstance(getattr(state, "artifact_config", None), dict):
+                residual_threshold = state.artifact_config.get("residual_threshold")
+
             prediction = await asyncio.to_thread(
-                predict, state.model, state.mean, state.components, frame, state.device
+                predict,
+                state.model,
+                state.mean,
+                state.components,
+                frame,
+                state.device,
+                residual_threshold,
             )
             message = {
                 "class_name": prediction.class_name,
@@ -131,6 +157,8 @@ async def predict_loop() -> None:
                 "commanded_state": state.state,
                 "driving": not state.infer_paused,
                 "paused": state.infer_paused,
+                "residual": prediction.residual,
+                "forced_search": prediction.forced_search,
             }
             state.latest_prediction = message
 
@@ -157,8 +185,7 @@ async def predict_loop() -> None:
 async def lifespan(app: FastAPI):
     loaded = load_artifacts(state.device)
     if loaded is not None:
-        state.model, state.mean, state.components, config = loaded
-        logger.info("Loaded model artifacts (%d components)", config["n_components"])
+        apply_loaded_artifacts(loaded)
     else:
         logger.info("No model artifacts found — train after collecting data")
 
@@ -247,7 +274,7 @@ def set_mode(body: ModeRequest) -> dict:
     if body.mode == "infer":
         loaded = load_artifacts(state.device)
         if loaded is not None:
-            state.model, state.mean, state.components, _ = loaded
+            apply_loaded_artifacts(loaded)
         state.infer_paused = False
         state.state = "stop"
         drive_motors("stop", force=True)
@@ -267,15 +294,39 @@ def set_capture(body: CaptureRequest) -> dict:
 @app.post("/train")
 def trigger_train() -> dict:
     try:
-        train_main()
+        history = train_main()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     loaded = load_artifacts(state.device)
     if loaded is not None:
-        state.model, state.mean, state.components, _ = loaded
-    return {"ok": True, "message": "Training complete — switch to Infer to try it"}
+        apply_loaded_artifacts(loaded)
+    return {
+        "ok": True,
+        "message": "Training complete — switch to Infer to try it",
+        "history": history,
+    }
+
+
+@app.get("/train/metrics")
+def get_train_metrics() -> dict:
+    from viz import load_training_history
+
+    history = load_training_history()
+    if history is None:
+        raise HTTPException(status_code=404, detail="No training history yet. Train first.")
+    return history
+
+
+@app.get("/pca/viz")
+def get_pca_viz() -> dict:
+    from viz import load_pca_viz
+
+    viz = load_pca_viz()
+    if viz is None:
+        raise HTTPException(status_code=404, detail="No PCA artifacts yet. Train first.")
+    return viz
 
 
 @app.post("/offer")

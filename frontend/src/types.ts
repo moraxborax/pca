@@ -8,6 +8,8 @@ export interface PredictionMessage {
   commanded_state: CartState
   driving?: boolean
   paused?: boolean
+  residual?: number
+  forced_search?: boolean
 }
 
 export const KEY_TO_STATE: Record<string, CartState> = {
