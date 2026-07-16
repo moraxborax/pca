@@ -7,7 +7,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Duty cycles 0–100 for keyboard / commanded states
-DRIVE_DUTY = 40
+DRIVE_DUTY = 75
 TURN_DUTY = 30
 SEARCH_DUTY = 15
 
