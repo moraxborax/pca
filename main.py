@@ -10,13 +10,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from artifacts import artifacts_exist, load_artifacts
-from config import CLASSES, SAMPLE_RATE_HZ
+from config import (
+    CLASSES,
+    DEFAULT_TRAIN_EPOCHS,
+    MAX_TRAIN_EPOCHS,
+    MIN_TRAIN_EPOCHS,
+    SAMPLE_RATE_HZ,
+)
 from control import apply_action, init_board, stop as motor_stop
 from dataset import class_counts, clear_dataset, save_sample
 from inference import predict
 from preprocess import frame_to_sample
 from stream import Camera, CameraStreamTrack
 from train import main as train_main
+from training_progress import fail as fail_training_progress
+from training_progress import snapshot as training_progress_snapshot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,6 +67,10 @@ class CaptureRequest(BaseModel):
 class OfferRequest(BaseModel):
     sdp: str
     type: str
+
+
+class TrainRequest(BaseModel):
+    epochs: int = DEFAULT_TRAIN_EPOCHS
 
 
 def overlay_text() -> str:
@@ -292,12 +304,20 @@ def set_capture(body: CaptureRequest) -> dict:
 
 
 @app.post("/train")
-def trigger_train() -> dict:
+def trigger_train(body: TrainRequest = TrainRequest()) -> dict:
+    epochs = body.epochs
+    if epochs < MIN_TRAIN_EPOCHS or epochs > MAX_TRAIN_EPOCHS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"epochs must be between {MIN_TRAIN_EPOCHS} and {MAX_TRAIN_EPOCHS}",
+        )
     try:
-        history = train_main()
+        history = train_main(epochs=epochs)
     except ValueError as exc:
+        fail_training_progress(str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        fail_training_progress(str(exc))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     loaded = load_artifacts(state.device)
     if loaded is not None:
@@ -307,6 +327,11 @@ def trigger_train() -> dict:
         "message": "Training complete — switch to Infer to try it",
         "history": history,
     }
+
+
+@app.get("/train/progress")
+def get_train_progress() -> dict:
+    return training_progress_snapshot()
 
 
 @app.get("/train/metrics")

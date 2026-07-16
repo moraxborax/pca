@@ -14,6 +14,11 @@ ARTIFACTS_DIR = Path("artifacts")
 
 RESIDUAL_THRESHOLD_MULTIPLIER = 2.0  # force search if residual > multiplier * train p95
 
+DEFAULT_TRAIN_EPOCHS = 30
+TRAIN_BATCH_SIZE = 32
+MIN_TRAIN_EPOCHS = 1
+MAX_TRAIN_EPOCHS = 200
+
 KEY_TO_STATE = {
     "w": "forward",
     "s": "backward",

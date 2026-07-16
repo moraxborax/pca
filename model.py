@@ -9,10 +9,10 @@ class Net(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(components, 64),
             nn.ReLU(),
-            # nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(64, 32),
             nn.ReLU(),
-            # nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(32, num_classes),
         )
 

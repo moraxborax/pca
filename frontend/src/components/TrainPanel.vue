@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import MetricChart from './MetricChart.vue'
 import type { CartState } from '../types'
 import { STATE_LABELS } from '../types'
@@ -12,6 +12,21 @@ interface TrainHistory {
   val_acc: number[]
   n_samples?: number
   residual_threshold?: number
+  epochs_requested?: number
+  steps_per_epoch?: number
+  total_steps?: number
+  batch_size?: number
+}
+
+interface TrainProgress {
+  active: boolean
+  epoch: number
+  total_epochs: number
+  step: number
+  steps_per_epoch: number
+  total_steps: number
+  global_step: number
+  message: string
 }
 
 interface PcaViz {
@@ -46,6 +61,36 @@ const message = ref('')
 const error = ref('')
 const history = ref<TrainHistory | null>(null)
 const pca = ref<PcaViz | null>(null)
+const epochCount = ref(30)
+const progress = ref<TrainProgress | null>(null)
+let progressTimer: ReturnType<typeof setInterval> | null = null
+
+const MIN_EPOCHS = 5
+const MAX_EPOCHS = 100
+const EPOCH_STEP = 5
+
+const historySummary = computed(() => {
+  if (!history.value?.epochs?.length) return null
+  const h = history.value
+  const epochsDone = h.epochs.length
+  const stepsPerEpoch = h.steps_per_epoch ?? 0
+  const totalSteps = h.total_steps ?? epochsDone * stepsPerEpoch
+  return {
+    epochsDone,
+    epochsRequested: h.epochs_requested ?? epochsDone,
+    stepsPerEpoch,
+    totalSteps,
+    batchSize: h.batch_size ?? 32,
+  }
+})
+
+const progressPercent = computed(() => {
+  if (!progress.value?.total_steps) return 0
+  return Math.min(
+    100,
+    Math.round((progress.value.global_step / progress.value.total_steps) * 100),
+  )
+})
 
 async function fetchStats() {
   try {
@@ -84,6 +129,31 @@ async function fetchPca() {
   }
 }
 
+async function fetchProgress() {
+  try {
+    const response = await fetch('/train/progress')
+    if (!response.ok) return
+    progress.value = await response.json()
+  } catch {
+    // ignore while backend is busy
+  }
+}
+
+function startProgressPolling() {
+  stopProgressPolling()
+  void fetchProgress()
+  progressTimer = setInterval(() => {
+    void fetchProgress()
+  }, 400)
+}
+
+function stopProgressPolling() {
+  if (progressTimer !== null) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
 async function refreshViz() {
   await Promise.all([fetchMetrics(), fetchPca()])
 }
@@ -92,8 +162,13 @@ async function startTraining() {
   training.value = true
   message.value = ''
   error.value = ''
+  startProgressPolling()
   try {
-    const response = await fetch('/train', { method: 'POST' })
+    const response = await fetch('/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ epochs: epochCount.value }),
+    })
     const data = await response.json()
     if (!response.ok) {
       error.value = data.detail ?? 'Training failed'
@@ -103,18 +178,25 @@ async function startTraining() {
     if (data.history) {
       history.value = data.history
     }
+    await fetchProgress()
     await fetchPca()
     emit('trained')
   } catch {
     error.value = 'Backend not reachable'
   } finally {
     training.value = false
+    stopProgressPolling()
   }
 }
 
 onMounted(async () => {
   await fetchStats()
   await refreshViz()
+  await fetchProgress()
+})
+
+onUnmounted(() => {
+  stopProgressPolling()
 })
 </script>
 
@@ -130,9 +212,47 @@ onMounted(async () => {
       </li>
     </ul>
 
+    <label class="epoch-control">
+      <span class="epoch-label">Epochs to train</span>
+      <strong>{{ epochCount }}</strong>
+      <input
+        v-model.number="epochCount"
+        type="range"
+        :min="MIN_EPOCHS"
+        :max="MAX_EPOCHS"
+        :step="EPOCH_STEP"
+        :disabled="training"
+      />
+      <span class="epoch-range">{{ MIN_EPOCHS }}–{{ MAX_EPOCHS }}</span>
+    </label>
+
     <button class="train-btn" :disabled="training" @click="startTraining">
       {{ training ? 'Training…' : 'Start training' }}
     </button>
+
+    <section v-if="training || progress?.message" class="progress-block">
+      <div v-if="training || progress?.active" class="progress-bar">
+        <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
+      </div>
+      <p v-if="progress" class="progress-text">
+        <template v-if="progress.total_epochs">
+          Epoch {{ progress.epoch }}/{{ progress.total_epochs }}
+          · step {{ progress.step }}/{{ progress.steps_per_epoch }}
+          · total {{ progress.global_step }}/{{ progress.total_steps }}
+        </template>
+        <template v-else-if="historySummary">
+          Last run: {{ historySummary.epochsDone }}/{{ historySummary.epochsRequested }}
+          epochs · {{ historySummary.totalSteps }} steps
+        </template>
+      </p>
+      <p v-if="progress?.message" class="meta">{{ progress.message }}</p>
+    </section>
+
+    <p v-if="historySummary && !training" class="meta history-meta">
+      Last trained {{ historySummary.epochsDone }} epochs
+      ({{ historySummary.totalSteps }} steps, {{ historySummary.stepsPerEpoch }}/epoch,
+      batch {{ historySummary.batchSize }})
+    </p>
 
     <p v-if="message" class="ok">{{ message }}</p>
     <p v-if="error" class="err">{{ error }}</p>
@@ -248,6 +368,57 @@ li {
 .train-btn:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.epoch-control {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.epoch-label {
+  color: var(--text-h);
+}
+
+.epoch-control input[type='range'] {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.epoch-range {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.progress-block {
+  margin-top: 12px;
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  transition: width 0.25s ease;
+}
+
+.progress-text {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-h);
+}
+
+.history-meta {
+  margin-top: 8px;
 }
 
 .ok {

@@ -1,13 +1,24 @@
+import math
+from collections.abc import Callable
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from artifacts import save_artifacts
-from config import N_COMPONENTS, RESIDUAL_THRESHOLD_MULTIPLIER
+from config import (
+    DEFAULT_TRAIN_EPOCHS,
+    N_COMPONENTS,
+    RESIDUAL_THRESHOLD_MULTIPLIER,
+    TRAIN_BATCH_SIZE,
+)
 from dataset import load_dataset
 from model import Net
 from pca.pca import pca, pca_residual, pca_transform
+from training_progress import finish as finish_progress
+from training_progress import reset as reset_progress
+from training_progress import update as update_progress
 from viz import save_training_history
 
 
@@ -17,6 +28,9 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    *,
+    epoch: int = 1,
+    on_step: Callable[[int, int], None] | None = None,
 ) -> tuple[float, float]:
     model.train()
 
@@ -24,7 +38,7 @@ def train_epoch(
     total_correct = 0
     total_samples = 0
 
-    for x, y in dataloader:
+    for step, (x, y) in enumerate(dataloader, start=1):
         x = x.to(device)
         y = y.to(device)
 
@@ -37,6 +51,8 @@ def train_epoch(
         total_loss += loss.item() * x.size(0)
         total_correct += (logits.argmax(dim=1) == y).sum().item()
         total_samples += x.size(0)
+        if on_step is not None:
+            on_step(epoch, step)
 
     avg_loss = total_loss / total_samples
     accuracy = total_correct / total_samples
@@ -87,7 +103,7 @@ def analyze_variance(singular_values: np.ndarray, n_samples: int) -> None:
         )
 
 
-def main() -> dict:
+def main(epochs: int = DEFAULT_TRAIN_EPOCHS) -> dict:
     device = torch.device("cpu")
     X, y = load_dataset()
     if len(X) == 0:
@@ -122,16 +138,26 @@ def main() -> dict:
     X_val = torch.from_numpy(X_pca[val_idx])
     y_val = torch.from_numpy(y[val_idx])
 
-    train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=32, shuffle=True)
-    val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=32)
+    train_loader = DataLoader(
+        TensorDataset(X_train, y_train), batch_size=TRAIN_BATCH_SIZE, shuffle=True
+    )
+    val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=TRAIN_BATCH_SIZE)
+    steps_per_epoch = max(1, math.ceil(len(X_train) / TRAIN_BATCH_SIZE))
+    total_steps = epochs * steps_per_epoch
+    reset_progress(epochs, steps_per_epoch)
 
     model = Net(n_components).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
 
     history: dict = {
         "n_samples": int(len(X)),
         "n_components": int(n_components),
+        "epochs_requested": int(epochs),
+        "steps_per_epoch": int(steps_per_epoch),
+        "total_steps": int(total_steps),
+        "batch_size": int(TRAIN_BATCH_SIZE),
         "epochs": [],
         "train_loss": [],
         "train_acc": [],
@@ -141,11 +167,23 @@ def main() -> dict:
         "residual_threshold": residual_threshold,
     }
 
-    epochs = 30
+    def on_step(epoch: int, step: int) -> None:
+        update_progress(
+            epoch=epoch,
+            step=step,
+            message=f"Epoch {epoch}/{epochs} · step {step}/{steps_per_epoch}",
+        )
+
     for epoch in range(1, epochs + 1):
         print(f"\nEpoch {epoch}/{epochs}")
         train_loss, train_acc = train_epoch(
-            model, train_loader, optimizer, criterion, device
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            epoch=epoch,
+            on_step=on_step,
         )
         val_loss, val_acc = eval_epoch(model, val_loader, criterion, device)
         print(f"Val Loss: {val_loss:.4f}  Val Accuracy: {val_acc:.2%}")
@@ -154,6 +192,11 @@ def main() -> dict:
         history["train_acc"].append(train_acc)
         history["val_loss"].append(val_loss)
         history["val_acc"].append(val_acc)
+        update_progress(
+            epoch=epoch,
+            step=steps_per_epoch,
+            message=f"Epoch {epoch}/{epochs} complete",
+        )
 
     if history["val_acc"]:
         print(f"\nFinal validation accuracy: {history['val_acc'][-1]:.2%}")
@@ -162,6 +205,9 @@ def main() -> dict:
         model, mean, components, singular_values, n_components, residual_threshold
     )
     save_training_history(history)
+    finish_progress(
+        f"Finished {epochs} epochs ({total_steps} steps @ {steps_per_epoch}/epoch)"
+    )
     print("\nSaved artifacts to artifacts/")
     return history
 
