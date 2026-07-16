@@ -126,7 +126,7 @@ def main() -> dict:
     val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=32)
 
     model = Net(n_components).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.01)
     criterion = nn.CrossEntropyLoss()
 
     history: dict = {
