@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import MetricChart from './MetricChart.vue'
 import type { CartState } from '../types'
-import { STATE_LABELS } from '../types'
+import { EMPTY_COUNTS, STATE_LABELS } from '../types'
 
 interface TrainHistory {
   epochs: number[]
@@ -11,11 +11,16 @@ interface TrainHistory {
   val_loss: number[]
   val_acc: number[]
   n_samples?: number
+  n_train_samples?: number
+  n_test_samples?: number
   residual_threshold?: number
   epochs_requested?: number
   steps_per_epoch?: number
   total_steps?: number
   batch_size?: number
+  test_loss?: number | null
+  test_acc?: number | null
+  test_per_class?: Record<string, number> | null
 }
 
 interface TrainProgress {
@@ -48,14 +53,8 @@ const emit = defineEmits<{
   trained: []
 }>()
 
-const counts = ref<Record<CartState, number>>({
-  forward: 0,
-  backward: 0,
-  stop: 0,
-  left: 0,
-  right: 0,
-  search: 0,
-})
+const trainCounts = ref<Record<CartState, number>>({ ...EMPTY_COUNTS })
+const testCounts = ref<Record<CartState, number>>({ ...EMPTY_COUNTS })
 const training = ref(false)
 const message = ref('')
 const error = ref('')
@@ -97,7 +96,8 @@ async function fetchStats() {
     const response = await fetch('/dataset/stats')
     if (!response.ok) return
     const data = await response.json()
-    counts.value = data.counts
+    if (data.counts?.train) trainCounts.value = data.counts.train
+    if (data.counts?.test) testCounts.value = data.counts.test
   } catch {
     // backend may not be running yet
   }
@@ -203,14 +203,30 @@ onUnmounted(() => {
 <template>
   <div class="train-panel">
     <h3>Train model</h3>
-    <p class="hint">Runs PCA + MLP, then shows curves and PCA views (TensorBoard-style).</p>
+    <p class="hint">
+      Fits PCA + MLP on <strong>train</strong> only. Held-out <strong>test</strong> is scored once at the end.
+    </p>
 
-    <ul>
-      <li v-for="(count, name) in counts" :key="name">
-        <span>{{ STATE_LABELS[name as CartState] }}</span>
-        <strong>{{ count }}</strong>
-      </li>
-    </ul>
+    <div class="split-counts">
+      <div>
+        <p class="split-title">Train</p>
+        <ul>
+          <li v-for="(count, name) in trainCounts" :key="`tr-${name}`">
+            <span>{{ STATE_LABELS[name as CartState] }}</span>
+            <strong>{{ count }}</strong>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <p class="split-title">Test (held out)</p>
+        <ul>
+          <li v-for="(count, name) in testCounts" :key="`te-${name}`">
+            <span>{{ STATE_LABELS[name as CartState] }}</span>
+            <strong>{{ count }}</strong>
+          </li>
+        </ul>
+      </div>
+    </div>
 
     <label class="epoch-control">
       <span class="epoch-label">Epochs to train</span>
@@ -256,6 +272,27 @@ onUnmounted(() => {
 
     <p v-if="message" class="ok">{{ message }}</p>
     <p v-if="error" class="err">{{ error }}</p>
+
+    <section
+      v-if="history && (history.test_acc != null || history.n_test_samples === 0)"
+      class="block"
+    >
+      <h4>Held-out test</h4>
+      <template v-if="history.test_acc != null">
+        <p class="test-score">
+          Accuracy {{ (history.test_acc * 100).toFixed(1) }}%
+          · loss {{ history.test_loss?.toFixed(4) }}
+          · {{ history.n_test_samples }} samples
+        </p>
+        <ul v-if="history.test_per_class">
+          <li v-for="(acc, name) in history.test_per_class" :key="name">
+            <span>{{ STATE_LABELS[name as CartState] ?? name }}</span>
+            <strong>{{ (acc * 100).toFixed(1) }}%</strong>
+          </li>
+        </ul>
+      </template>
+      <p v-else class="meta">No test samples yet — capture with Dataset = Test.</p>
+    </section>
 
     <section v-if="history?.epochs?.length" class="block">
       <h4>Training curves</h4>
@@ -337,6 +374,20 @@ onUnmounted(() => {
   margin: 0 0 16px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.split-counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.split-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
 }
 
 ul {
@@ -425,6 +476,13 @@ li {
   margin: 12px 0 0;
   font-size: 13px;
   color: #22c55e;
+}
+
+.test-score {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
 }
 
 .err {

@@ -6,10 +6,11 @@ import StateDisplay from './components/StateDisplay.vue'
 import TrainPanel from './components/TrainPanel.vue'
 import VideoStream from './components/VideoStream.vue'
 import { useKeyboard } from './composables/useKeyboard'
-import type { AppMode, CartState } from './types'
+import type { AppMode, CartState, DatasetSplit } from './types'
 
 const mode = ref<AppMode>('label')
 const capturing = ref(false)
+const datasetSplit = ref<DatasetSplit>('train')
 const statsRef = ref<InstanceType<typeof DatasetStats> | null>(null)
 const error = ref('')
 
@@ -76,8 +77,10 @@ async function toggleCapture() {
   }
 }
 
-async function clearDataset() {
-  if (!window.confirm('Delete all captured samples? This cannot be undone.')) {
+async function clearDataset(which: DatasetSplit | 'all') {
+  const label =
+    which === 'all' ? 'train and test' : which === 'train' ? 'train' : 'test'
+  if (!window.confirm(`Delete all ${label} samples? This cannot be undone.`)) {
     return
   }
   error.value = ''
@@ -90,7 +93,8 @@ async function clearDataset() {
       })
       capturing.value = false
     }
-    const response = await fetch('/dataset', { method: 'DELETE' })
+    const url = which === 'all' ? '/dataset?split=all' : `/dataset?split=${which}`
+    const response = await fetch(url, { method: 'DELETE' })
     if (!response.ok) {
       const data = await response.json()
       error.value = data.detail ?? 'Failed to clear dataset'
@@ -128,8 +132,17 @@ async function clearDataset() {
           >
             {{ capturing ? 'Stop capturing' : 'Start capturing' }}
           </button>
-          <DatasetStats ref="statsRef" :capturing="capturing" />
-          <button class="clear-btn" @click="clearDataset">Clear dataset</button>
+          <DatasetStats
+            ref="statsRef"
+            :capturing="capturing"
+            :active-split="datasetSplit"
+            @update:active-split="datasetSplit = $event"
+          />
+          <div class="clear-row">
+            <button class="clear-btn" @click="clearDataset('train')">Clear train</button>
+            <button class="clear-btn" @click="clearDataset('test')">Clear test</button>
+            <button class="clear-btn" @click="clearDataset('all')">Clear all</button>
+          </div>
         </template>
         <TrainPanel v-else-if="mode === 'train'" />
         <PredictionPanel v-else />
@@ -197,6 +210,12 @@ h1 {
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.12);
   color: #ef4444;
+}
+
+.clear-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .clear-btn {

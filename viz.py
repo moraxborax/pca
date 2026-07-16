@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from config import ARTIFACTS_DIR, CLASSES, DATA_DIR, IMAGE_SIZE
+from config import ARTIFACTS_DIR, CLASSES, IMAGE_SIZE, TEST_DIR, TRAIN_DIR
 from pca.pca import pca_reconstruct, pca_residual, pca_transform
 
 
@@ -78,7 +78,9 @@ def build_pca_viz(
 
     reconstructions = []
     for class_name in CLASSES:
-        paths = sorted((DATA_DIR / class_name).glob("*.png"))
+        paths = sorted((TRAIN_DIR / class_name).glob("*.png"))
+        if not paths:
+            paths = sorted((TEST_DIR / class_name).glob("*.png"))
         if not paths:
             continue
         raw = cv2.imread(str(paths[0]), cv2.IMREAD_GRAYSCALE)

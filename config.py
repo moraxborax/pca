@@ -10,6 +10,9 @@ CLASS_TO_INDEX = {name: i for i, name in enumerate(CLASSES)}
 NUM_CLASSES = len(CLASSES)
 
 DATA_DIR = Path("data")
+DATASET_SPLITS = ("train", "test")
+TRAIN_DIR = DATA_DIR / "train"
+TEST_DIR = DATA_DIR / "test"
 ARTIFACTS_DIR = Path("artifacts")
 
 RESIDUAL_THRESHOLD_MULTIPLIER = 2.0  # force search if residual > multiplier * train p95
@@ -27,4 +30,3 @@ KEY_TO_STATE = {
     "d": "right",
     "e": "search",
 }
-

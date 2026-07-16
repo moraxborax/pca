@@ -22,6 +22,32 @@ from training_progress import update as update_progress
 from viz import save_training_history
 
 
+def per_class_accuracy(
+    model: nn.Module,
+    dataloader: DataLoader,
+    device: torch.device,
+    num_classes: int,
+) -> dict[str, float]:
+    from config import CLASSES
+
+    correct = [0] * num_classes
+    total = [0] * num_classes
+    model.eval()
+    with torch.no_grad():
+        for x, y in dataloader:
+            x = x.to(device)
+            y = y.to(device)
+            pred = model(x).argmax(dim=1)
+            for label, p in zip(y.tolist(), pred.tolist()):
+                total[label] += 1
+                if label == p:
+                    correct[label] += 1
+    return {
+        CLASSES[i]: (correct[i] / total[i] if total[i] else 0.0)
+        for i in range(num_classes)
+    }
+
+
 def train_epoch(
     model: nn.Module,
     dataloader: DataLoader,
@@ -104,12 +130,20 @@ def analyze_variance(singular_values: np.ndarray, n_samples: int) -> None:
 
 
 def main(epochs: int = DEFAULT_TRAIN_EPOCHS) -> dict:
-    device = torch.device("cpu")
-    X, y = load_dataset()
-    if len(X) == 0:
-        raise ValueError("No training data found. Collect samples in Capture mode first.")
+    from config import CLASSES, NUM_CLASSES
 
-    print(f"Loaded {len(X)} samples with {X.shape[1]} features")
+    device = torch.device("cpu")
+    X, y = load_dataset("train")
+    if len(X) == 0:
+        raise ValueError(
+            "No training data found. Collect samples with the Capture tab "
+            "(Dataset = Train)."
+        )
+
+    print(f"Loaded {len(X)} train samples with {X.shape[1]} features")
+
+    X_test, y_test = load_dataset("test")
+    print(f"Loaded {len(X_test)} held-out test samples")
 
     n_components = min(N_COMPONENTS, X.shape[0] - 1, X.shape[1])
     mean, components, singular_values = pca(X, n_components)
@@ -147,12 +181,13 @@ def main(epochs: int = DEFAULT_TRAIN_EPOCHS) -> dict:
     reset_progress(epochs, steps_per_epoch)
 
     model = Net(n_components).to(device)
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
 
     history: dict = {
         "n_samples": int(len(X)),
+        "n_train_samples": int(len(X)),
+        "n_test_samples": int(len(X_test)),
         "n_components": int(n_components),
         "epochs_requested": int(epochs),
         "steps_per_epoch": int(steps_per_epoch),
@@ -200,6 +235,26 @@ def main(epochs: int = DEFAULT_TRAIN_EPOCHS) -> dict:
 
     if history["val_acc"]:
         print(f"\nFinal validation accuracy: {history['val_acc'][-1]:.2%}")
+
+    if len(X_test) > 0:
+        X_test_pca = pca_transform(X_test, mean, components)
+        test_loader = DataLoader(
+            TensorDataset(torch.from_numpy(X_test_pca), torch.from_numpy(y_test)),
+            batch_size=TRAIN_BATCH_SIZE,
+        )
+        test_loss, test_acc = eval_epoch(model, test_loader, criterion, device)
+        test_per_class = per_class_accuracy(model, test_loader, device, NUM_CLASSES)
+        history["test_loss"] = test_loss
+        history["test_acc"] = test_acc
+        history["test_per_class"] = test_per_class
+        print(f"\nHeld-out TEST accuracy: {test_acc:.2%}  loss: {test_loss:.4f}")
+        for name in CLASSES:
+            print(f"  {name}: {test_per_class[name]:.2%}")
+    else:
+        history["test_loss"] = None
+        history["test_acc"] = None
+        history["test_per_class"] = None
+        print("\nNo test set — skip held-out evaluation (toggle Dataset=Test while capturing).")
 
     save_artifacts(
         model, mean, components, singular_values, n_components, residual_threshold

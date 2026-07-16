@@ -1,22 +1,32 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
-import type { CartState } from '../types'
-import { STATE_LABELS } from '../types'
+import type { CartState, DatasetSplit } from '../types'
+import { EMPTY_COUNTS, STATE_LABELS } from '../types'
 
-defineProps<{
+const props = defineProps<{
   capturing: boolean
+  activeSplit: DatasetSplit
 }>()
 
-const counts = ref<Record<CartState, number>>({
-  forward: 0,
-  backward: 0,
-  stop: 0,
-  left: 0,
-  right: 0,
-  search: 0,
-})
+const emit = defineEmits<{
+  'update:activeSplit': [split: DatasetSplit]
+}>()
 
-const total = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0))
+const trainCounts = ref<Record<CartState, number>>({ ...EMPTY_COUNTS })
+const testCounts = ref<Record<CartState, number>>({ ...EMPTY_COUNTS })
+
+const activeCounts = computed(() =>
+  props.activeSplit === 'train' ? trainCounts.value : testCounts.value,
+)
+const trainTotal = computed(() =>
+  Object.values(trainCounts.value).reduce((a, b) => a + b, 0),
+)
+const testTotal = computed(() =>
+  Object.values(testCounts.value).reduce((a, b) => a + b, 0),
+)
+const activeTotal = computed(() =>
+  Object.values(activeCounts.value).reduce((a, b) => a + b, 0),
+)
 
 let interval: ReturnType<typeof setInterval> | null = null
 
@@ -25,9 +35,24 @@ async function fetchStats() {
     const response = await fetch('/dataset/stats')
     if (!response.ok) return
     const data = await response.json()
-    counts.value = data.counts
+    if (data.counts?.train) trainCounts.value = data.counts.train
+    if (data.counts?.test) testCounts.value = data.counts.test
   } catch {
     // backend may not be running yet
+  }
+}
+
+async function setSplit(split: DatasetSplit) {
+  try {
+    const response = await fetch('/dataset/split', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ split }),
+    })
+    if (!response.ok) return
+    emit('update:activeSplit', split)
+  } catch {
+    // ignore
   }
 }
 
@@ -49,17 +74,37 @@ defineExpose({ fetchStats })
       Dataset samples
       <span v-if="capturing" class="recording">● recording</span>
     </h3>
-    <p class="total">{{ total }} total</p>
+
+    <div class="split-toggle">
+      <button
+        type="button"
+        :class="{ active: activeSplit === 'train' }"
+        @click="setSplit('train')"
+      >
+        Train ({{ trainTotal }})
+      </button>
+      <button
+        type="button"
+        :class="{ active: activeSplit === 'test' }"
+        @click="setSplit('test')"
+      >
+        Test ({{ testTotal }})
+      </button>
+    </div>
+
+    <p class="total">
+      Saving into <strong>{{ activeSplit }}</strong> · {{ activeTotal }} samples
+    </p>
     <ul>
-      <li v-for="(count, name) in counts" :key="name">
+      <li v-for="(count, name) in activeCounts" :key="name">
         <span>{{ STATE_LABELS[name as CartState] }}</span>
         <strong>{{ count }}</strong>
       </li>
     </ul>
     <p class="hint">
       {{ capturing
-        ? 'Sampling at 10 Hz for the latched state.'
-        : 'Press Start capturing, then use W/S/Q/A/D/E to label.' }}
+        ? `Sampling at 10 Hz into ${activeSplit}/.`
+        : 'Toggle Train vs Test, then Start capturing. Keep test data held out.' }}
     </p>
   </div>
 </template>
@@ -83,6 +128,33 @@ defineExpose({ fetchStats })
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+.split-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--code-bg);
+  padding: 4px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.split-toggle button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.split-toggle button.active {
+  background: var(--bg);
+  color: var(--text-h);
+  box-shadow: var(--shadow);
+  font-weight: 600;
 }
 
 .total {

@@ -12,13 +12,14 @@ from pydantic import BaseModel
 from artifacts import artifacts_exist, load_artifacts
 from config import (
     CLASSES,
+    DATASET_SPLITS,
     DEFAULT_TRAIN_EPOCHS,
     MAX_TRAIN_EPOCHS,
     MIN_TRAIN_EPOCHS,
     SAMPLE_RATE_HZ,
 )
 from control import apply_action, init_board, stop as motor_stop
-from dataset import class_counts, clear_dataset, save_sample
+from dataset import class_counts, clear_dataset, ensure_class_dirs, migrate_legacy_layout, save_sample
 from inference import predict
 from preprocess import frame_to_sample
 from stream import Camera, CameraStreamTrack
@@ -35,6 +36,7 @@ class AppState:
     mode: str = "label"
     state: str = "stop"
     capturing: bool = False
+    dataset_split: str = "train"
     infer_paused: bool = False
     last_driven_action: str | None = None
     camera: Camera = field(default_factory=Camera)
@@ -64,6 +66,10 @@ class CaptureRequest(BaseModel):
     capturing: bool
 
 
+class DatasetSplitRequest(BaseModel):
+    split: str
+
+
 class OfferRequest(BaseModel):
     sdp: str
     type: str
@@ -76,7 +82,7 @@ class TrainRequest(BaseModel):
 def overlay_text() -> str:
     parts = [f"mode={state.mode}", f"state={state.state}"]
     if state.capturing:
-        parts.append("REC")
+        parts.append(f"REC:{state.dataset_split}")
     if state.mode == "infer" and state.infer_paused:
         parts.append("PAUSED")
     if state.latest_prediction is not None:
@@ -130,7 +136,9 @@ async def sample_loop() -> None:
             if frame is None:
                 continue
             sample = frame_to_sample(frame)
-            await asyncio.to_thread(save_sample, state.state, sample)
+            await asyncio.to_thread(
+                save_sample, state.state, sample, state.dataset_split
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -195,6 +203,9 @@ async def predict_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    migrate_legacy_layout()
+    ensure_class_dirs()
+
     loaded = load_artifacts(state.device)
     if loaded is not None:
         apply_loaded_artifacts(loaded)
@@ -230,13 +241,36 @@ app.add_middleware(
 
 @app.get("/dataset/stats")
 def get_dataset_stats() -> dict:
-    return {"counts": class_counts()}
+    counts = class_counts()
+    return {
+        "counts": counts,
+        "active_split": state.dataset_split,
+        "train_total": sum(counts["train"].values()),
+        "test_total": sum(counts["test"].values()),
+    }
+
+
+@app.post("/dataset/split")
+def set_dataset_split(body: DatasetSplitRequest) -> dict:
+    if body.split not in DATASET_SPLITS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid split: {body.split}. Use train or test.",
+        )
+    state.dataset_split = body.split
+    return {"ok": True, "split": state.dataset_split}
 
 
 @app.delete("/dataset")
-def delete_dataset() -> dict:
+def delete_dataset(split: str | None = None) -> dict:
     state.capturing = False
-    counts = clear_dataset()
+    if split is not None and split not in (*DATASET_SPLITS, "all"):
+        raise HTTPException(
+            status_code=400,
+            detail="split must be train, test, or all",
+        )
+    target = None if split in (None, "all") else split
+    counts = clear_dataset(target)
     return {"ok": True, "counts": counts}
 
 
